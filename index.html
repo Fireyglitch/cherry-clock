@@ -110,6 +110,33 @@ body:has(.settings-panel) .addon-pill,body:has(.updates-panel) .addon-pill,body:
 .firey-touch-group{display:flex;gap:8px}
 .firey-touch button{pointer-events:auto;touch-action:none;user-select:none;min-width:48px;min-height:48px;padding:8px 14px;font-size:18px}
 body:has(.settings-panel) .firey-touch,body:has(.updates-panel) .firey-touch,body:has(.addon-panel) .firey-touch,body:has(.daily-speech) .firey-touch{visibility:hidden}
+.settings-panel{max-height:calc(100% - 200px);overflow-y:auto}
+#firey-buddy.charging .firey-in{filter:drop-shadow(0 0 8px #ffad42)}
+.firey-touch button[aria-pressed="true"]{background:rgba(255,190,90,.85)}
+.firey-touch>button:last-child{min-width:90px}
+@media(max-width:400px){.firey-touch{bottom:210px}}
+
+/* Phone layout: reserve room for the utility stack and bottom controls. */
+@media(max-width:480px){
+ .scene-title{left:12px;right:64px;max-width:calc(100% - 76px);box-sizing:border-box;font-size:18px;padding:8px 10px}
+ .scene-tabs{right:56px;top:64px}
+ .holiday-pill,.addon-countdown{left:12px;right:64px;max-width:calc(100% - 76px);box-sizing:border-box;top:108px !important;padding:7px 10px}
+ .fps-pill{top:154px;left:12px}
+ .clock-controls{left:12px;right:12px;gap:6px;align-items:stretch}
+ .clock-controls .chip-button{font-size:13px;padding:9px 10px;white-space:nowrap}
+ .daily-quote{bottom:76px;box-sizing:border-box}
+ .firey-touch{bottom:222px}
+}
+@media(max-width:360px){
+ .scene-title{font-size:17px;line-height:1.2}
+ .scene-tabs{top:82px}
+ .holiday-pill,.addon-countdown{top:126px !important}
+ .fps-pill{top:174px}
+ .clock-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+ .clock-controls .chip-button{min-height:40px}
+ .daily-quote{bottom:126px}
+ .firey-touch{bottom:300px}
+}
 </style>
 </head>
 <body>
@@ -380,7 +407,7 @@ whenReady(function(){
   window.addEventListener('resize',function(){if(focusPill.style.display!=='none')placeFocusPill();});
 
   /* ---------- countdown ---------- */
-  var cdPill=el('div','addon-pill');
+  var cdPill=el('div','addon-pill addon-countdown');
   document.body.appendChild(cdPill);
   function cdLoad(){
     try{var s=localStorage.getItem('cherry-clock-countdown');if(s){var o=JSON.parse(s);if(o&&o.date)return o;}}catch(e){}
@@ -594,6 +621,7 @@ whenReady(function(){
     var x = W*0.5, y = floorY(), vx = 0, vy = 0, raf = 0, last = 0, onFloor = true;
     var dragging = false, moved = 0, downT = 0, samples = [], downOX = 0, downOY = 0, downX = 0, downY = 0;
     var keys = {left:false, right:false};
+    var charging=false, chargeStart=0;
     var facing = 1, hurtUntil = 0, happyUntil = 0, lastInteract = Date.now(), airJumps = 0, punchedUntil = 0, thrown = false;
     /* ----- on/off switch (Settings panel) ----- */
     var LSKEY = "firey-buddy-enabled";
@@ -606,25 +634,35 @@ whenReady(function(){
     var coverText = document.createElement("span"); coverText.textContent = "Enable Firey";
     enableCover.appendChild(coverArt); enableCover.appendChild(coverText); (document.querySelector(".addon-fab") || scene).appendChild(enableCover);
     enableCover.addEventListener("click",function(){enabled=true;happyUntil=Date.now()+700;try{localStorage.setItem(LSKEY,"1");}catch(e){}applyEnabled();});
+    var MOBILEKEY="firey-mobile-mode";
+    var mobileOn=false;
+    try{mobileOn=localStorage.getItem(MOBILEKEY)==="1";}catch(e){}
+    function applyMobile(){touchBar.style.display=(enabled && mobileOn)?"flex":"none";if(!mobileOn){keys.left=keys.right=false;cancelCharge();}}
     var touchBar=document.createElement("div");touchBar.className="firey-touch";touchBar.setAttribute("aria-label","Firey movement controls");
     var moveGroup=document.createElement("div");moveGroup.className="firey-touch-group";touchBar.appendChild(moveGroup);
     function touchButton(text,label,parent){var b=document.createElement("button");b.type="button";b.className="chip-button";b.textContent=text;b.setAttribute("aria-label",label);parent.appendChild(b);return b;}
-    var leftTouch=touchButton("←","Move Firey left",moveGroup),rightTouch=touchButton("→","Move Firey right",moveGroup),jumpTouch=touchButton("Jump","Jump or double jump",touchBar);
+    var leftTouch=touchButton("←","Move Firey left",moveGroup),rightTouch=touchButton("→","Move Firey right",moveGroup),jumpTouch=touchButton("Jump","Jump or double jump",touchBar),chargeTouch=touchButton("Charge","Hold to charge peel-out, release to dash",touchBar);
     scene.appendChild(touchBar);
+    function cancelCharge(){charging=false;el.classList.remove("charging");chargeTouch.setAttribute("aria-pressed","false");chargeTouch.textContent="Charge";}
+    function beginCharge(){if(!enabled||!onFloor||dragging||charging)return;charging=true;chargeStart=performance.now();vx=0;happyUntil=0;poke();el.classList.add("charging");chargeTouch.setAttribute("aria-pressed","true");wake();}
+    function releaseCharge(){if(!charging)return;var amount=Math.min(1,(performance.now()-chargeStart)/1200);cancelCharge();if(!enabled||!onFloor)return;vx=facing*(650+750*amount);poke();wake();}
+    chargeTouch.addEventListener("pointerdown",function(e){e.preventDefault();try{chargeTouch.setPointerCapture(e.pointerId);}catch(err){}beginCharge();});
+    chargeTouch.addEventListener("pointerup",releaseCharge);
+    ["pointercancel","lostpointercapture"].forEach(function(ev){chargeTouch.addEventListener(ev,cancelCharge);});
     function bindMove(b,k,dir){
       b.addEventListener("pointerdown",function(e){e.preventDefault();if(!enabled)return;try{b.setPointerCapture(e.pointerId);}catch(e){}keys[k]=true;facing=dir;poke();wake();});
       ["pointerup","pointercancel","lostpointercapture"].forEach(function(ev){b.addEventListener(ev,function(){keys[k]=false;});});
     }
     bindMove(leftTouch,"left",-1);bindMove(rightTouch,"right",1);
-    function doJump(){if(!enabled)return;poke();if(onFloor){vy=-JUMP;onFloor=false;airJumps=0;}else if(airJumps<1){airJumps=1;vy=-JUMP*.92;djumpFx();}wake();}
+    function doJump(){if(!enabled)return;cancelCharge();poke();if(onFloor){vy=-JUMP;onFloor=false;airJumps=0;}else if(airJumps<1){airJumps=1;vy=-JUMP*.92;djumpFx();}wake();}
     jumpTouch.addEventListener("pointerdown",function(e){e.preventDefault();doJump();});
-    window.addEventListener("blur",function(){keys.left=keys.right=false;});
+    window.addEventListener("blur",function(){keys.left=keys.right=false;cancelCharge();});
     function applyEnabled(){
       el.style.display = enabled ? "" : "none";
       enableCover.style.display = enabled ? "none" : "flex";
-      touchBar.style.display = enabled ? "flex" : "none";
+      applyMobile();
       var sb=document.querySelector("#firey-set-row button");if(sb){sb.textContent=enabled?"On":"Off";sb.setAttribute("aria-pressed",enabled?"true":"false");}
-      if(!enabled){ if(raf) cancelAnimationFrame(raf); raf = 0; last = 0; keys.left = keys.right = false; dragging = false; vx = vy = 0; el.classList.remove("grabbed"); }
+      if(!enabled){ cancelCharge(); if(raf) cancelAnimationFrame(raf); raf = 0; last = 0; keys.left = keys.right = false; dragging = false; vx = vy = 0; el.classList.remove("grabbed"); }
       if(enabled) draw();
     }
     applyEnabled();
@@ -638,6 +676,7 @@ whenReady(function(){
       else if(now < punchedUntil) set = FRAMES.punched;
       else if(now < happyUntil) set = FRAMES.happy;
       else if(dragging) set = FRAMES.grab;
+      else if(charging) set = FRAMES.peel;
       else if(!onFloor) set = FRAMES.spin;
       else if(Math.abs(vx) > 60){ var sp = Math.abs(vx); set = sp > 550 ? FRAMES.peel : (sp > WALK_MAX ? FRAMES.jog : FRAMES.walk); }
       else if(now - lastInteract > BORED_MS) set = FRAMES.bored;
@@ -680,7 +719,12 @@ whenReady(function(){
     function step(t){
       if(!last) last = t;
       var dt = Math.min(0.05,(t-last)/1000); last = t;
-      if(keys.left){ vx = Math.max(vx - ACCEL*dt, -RUN); }
+      if(charging){
+        vx=0;
+        if(keys.left)facing=-1;else if(keys.right)facing=1;
+        chargeTouch.textContent=Math.min(100,Math.floor((performance.now()-chargeStart)/12))+"%";
+      }
+      else if(keys.left){ vx = Math.max(vx - ACCEL*dt, -RUN); }
       else if(keys.right){ vx = Math.min(vx + ACCEL*dt, RUN); }
       vy += GRAV*dt;
       vx *= AIR_DRAG;
@@ -688,7 +732,7 @@ whenReady(function(){
       clamp();
       if(onFloor && !keys.left && !keys.right) vx *= Math.pow(0.0004, dt);
       if(Math.abs(vx) > 10) facing = vx > 0 ? 1 : -1;
-      var idle = onFloor && Math.abs(vx) < 26 && vy === 0 && !keys.left && !keys.right;
+      var idle = onFloor && Math.abs(vx) < 26 && vy === 0 && !keys.left && !keys.right && !charging;
       if(idle){
         vx = 0; draw();
         el.classList.remove("flying");
@@ -718,7 +762,7 @@ whenReady(function(){
       setTimeout(function(){ if(ghost.parentNode) ghost.parentNode.removeChild(ghost); }, 430);
     }
     el.addEventListener("pointerdown", function(e){
-      e.preventDefault(); poke();
+      e.preventDefault(); poke();cancelCharge();
       dragging = true; moved = 0; downT = e.timeStamp; samples = [];
       if(raf){ cancelAnimationFrame(raf); raf = 0; last = 0; }
       el.classList.add("grabbed"); el.classList.remove("flying");
@@ -774,15 +818,17 @@ whenReady(function(){
       var tag = (e.target && e.target.tagName) || "";
       if(!enabled) return;
       if(tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if(e.key.toLowerCase() === "z"){e.preventDefault();if(!e.repeat)beginCharge();return;}
       if(e.key === "ArrowLeft"){ keys.left = true; facing = -1; e.preventDefault(); poke(); wake(); }
       else if(e.key === "ArrowRight"){ keys.right = true; facing = 1; e.preventDefault(); poke(); wake(); }
-      else if(e.key === "ArrowUp"){ e.preventDefault(); if(e.repeat) return; poke();
+      else if(e.key === "ArrowUp"){ e.preventDefault(); if(e.repeat) return; cancelCharge();poke();
         if(onFloor){ vy = -JUMP; onFloor = false; airJumps = 0; }
         else if(airJumps < 1){ airJumps = 1; vy = -JUMP*0.92; djumpFx(); }
         wake(); }
       else if(e.key === "ArrowDown"){ e.preventDefault(); poke(); if(!onFloor){ vy = Math.max(vy + 600, 600); wake(); } }
     });
     window.addEventListener("keyup", function(e){
+      if(e.key.toLowerCase() === "z"){releaseCharge();return;}
       if(e.key === "ArrowLeft") keys.left = false;
       else if(e.key === "ArrowRight") keys.right = false;
     });
@@ -823,7 +869,7 @@ whenReady(function(){
       var row = document.createElement("div");
       row.className = "settings-row"; row.id = id;
       var lab = document.createElement("span");
-      lab.className = "settings-label"; lab.textContent = label; if(label === "Performance") lab.style.width = "auto";
+      lab.className = "settings-label"; lab.textContent = label; if(label === "Performance" || label === "Mobile mode") lab.style.width = "auto";
       var btn = document.createElement("button");
       btn.type = "button"; btn.className = "chip-button small";
       function paint(){
@@ -841,6 +887,10 @@ whenReady(function(){
       if(!panel.querySelector("#firey-set-row"))
         panel.appendChild(setRow("firey-set-row","Firey",function(){return enabled;},function(){
           enabled=!enabled; try{localStorage.setItem(LSKEY,enabled?"1":"0");}catch(e){} applyEnabled();
+        }));
+      if(!panel.querySelector("#firey-mobile-row"))
+        panel.appendChild(setRow("firey-mobile-row","Mobile mode",function(){return mobileOn;},function(){
+          mobileOn=!mobileOn;try{localStorage.setItem(MOBILEKEY,mobileOn?"1":"0");}catch(e){}applyMobile();
         }));
       if(!panel.querySelector("#firey-fps-row"))
         panel.appendChild(setRow("firey-fps-row","FPS",function(){return fpsOn;},function(){
